@@ -36,19 +36,19 @@ OS_RELEASE = "base-files/etc/os-release"
 HOOK = "lingmo-builder/scripts/lingmo-config/common/hooks/live/lingmo-hacks.chroot"
 BUILD_SH = "lingmo-builder/scripts/build.sh"
 ISSUE_DIR = "lingmo-builder/scripts/lingmo-config/common/includes.chroot_after_packages/etc"
-LIVE_BRANDING = "lingmo-live/calamares/branding/lingmo/branding.desc"
+INSTALLER_BRANDING = "lingmo-installer-config/calamares/branding/lingmo/branding.desc"
 
 
-def configure_paths(base_files: str, builder: str, live: str = "lingmo-live"):
+def configure_paths(base_files: str, builder: str, installer: str = "lingmo-installer-config"):
     """允许用 --base-files / --builder / --live 覆盖各仓库位置（可给绝对路径）。
     CI 里常见场景：base-files 就是当前 checkout，lingmo-builder 是另 clone 的。"""
-    global RULES, OS_RELEASE, HOOK, BUILD_SH, ISSUE_DIR, LIVE_BRANDING
+    global RULES, OS_RELEASE, HOOK, BUILD_SH, ISSUE_DIR, INSTALLER_BRANDING
     RULES = f"{base_files}/debian/rules"
     OS_RELEASE = f"{base_files}/etc/os-release"
     HOOK = f"{builder}/scripts/lingmo-config/common/hooks/live/lingmo-hacks.chroot"
     BUILD_SH = f"{builder}/scripts/build.sh"
     ISSUE_DIR = f"{builder}/scripts/lingmo-config/common/includes.chroot_after_packages/etc"
-    LIVE_BRANDING = f"{live}/calamares/branding/lingmo/branding.desc"
+    INSTALLER_BRANDING = f"{installer}/calamares/branding/lingmo/branding.desc"
 
 BLOCK_BEGIN = "# ========== Lingmo OS "
 BLOCK_END = "# ==================================================================="
@@ -384,9 +384,9 @@ def rewrite_yaml(path: Path, wants, dry=True, kind=""):
 
 
 def branding(root: Path, ctx: Ctx, dry: bool):
-    """lingmo-live/calamares/branding/lingmo/branding.desc —— 安装器界面显示的版本。
-    没有检出 lingmo-live 时静默跳过（保持只需两个仓库也能用）。"""
-    p = root / LIVE_BRANDING
+    """lingmo-installer-config/calamares/branding/lingmo/branding.desc ——
+    安装器界面显示的版本（现行组件）。没有检出该仓库时静默跳过。"""
+    p = root / INSTALLER_BRANDING
     if not p.exists():
         return []
     major = ctx.version.split(".")[0]
@@ -509,8 +509,8 @@ def main():
                        help="base-files 仓库位置（默认 <root>/base-files，可给绝对路径）")
         p.add_argument("--builder", default="lingmo-builder",
                        help="lingmo-builder 仓库位置（默认 <root>/lingmo-builder，可给绝对路径）")
-        p.add_argument("--live", default="lingmo-live",
-                       help="lingmo-live 仓库位置（安装器品牌；不存在则跳过）")
+        p.add_argument("--installer-config", "--live", dest="installer", default="lingmo-installer-config",
+                       help="lingmo-installer-config 仓库位置（安装器品牌；不存在则跳过）")
         p.add_argument("--json", action="store_true", help="以 JSON 输出")
 
     sub = ap.add_subparsers(dest="cmd", required=True)
@@ -534,7 +534,7 @@ def main():
     a = ap.parse_args()
 
     root = Path(a.root).resolve()
-    configure_paths(a.base_files, a.builder, a.live)
+    configure_paths(a.base_files, a.builder, a.installer)
     if a.cmd == "check":
         sys.exit(cmd_check(root, a.json))
     if a.cmd == "sync":
