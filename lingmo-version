@@ -114,6 +114,14 @@ class Ctx:
         return d
 
 
+def rel(p: Path, root: Path):
+    """尽量显示相对路径；目标在 root 之外（CI 里 --live 常传 /tmp/...）时退回绝对路径。"""
+    try:
+        return p.relative_to(root)
+    except ValueError:
+        return p
+
+
 def read_text(p: Path) -> str:
     return p.read_text(encoding="utf-8")
 
@@ -419,7 +427,7 @@ def cmd_check(root: Path, as_json: bool):
             for kind, path, lineno, old, new in drift:
                 if path != cur:
                     cur = path
-                    print(f"\n  {path.relative_to(root)}  [{kind}]")
+                    print(f"\n  {rel(path, root)}  [{kind}]")
                 print(f"    :{lineno:<4} {old!r}")
                 print(f"           → {new!r}")
         print()
@@ -442,7 +450,7 @@ def cmd_sync(root: Path, write: bool, as_json: bool, stamp: bool = False):
     else:
         print(f"{'已写入' if write else 'dry-run（加 --write 生效）'}：{len(changes)} 处")
         for kind, path, lineno, old, new in changes:
-            print(f"  {path.relative_to(root)}:{lineno}  [{kind}]")
+            print(f"  {rel(path, root)}:{lineno}  [{kind}]")
             print(f"      - {old}")
             print(f"      + {new}")
     return 0
