@@ -41,7 +41,7 @@ jobs:
         run: |
           set -e
           test -n "$TOKEN" || { echo "缺少 secrets.VERSION_SYNC_TOKEN（需对该两个仓库有 Contents: write）"; exit 1; }
-          for r in base-files lingmo-builder; do
+          for r in base-files lingmo-builder lingmo-live; do
             git -c http.extraheader="AUTHORIZATION: bearer $TOKEN" \
                 clone --depth 1 "https://github.com/LingmoOS/$r.git"
           done
@@ -91,6 +91,29 @@ jobs:
             git commit -m "chore: system version -> ${{ inputs.version }} (${{ inputs.build_ver }})"
             git -c http.extraheader="AUTHORIZATION: bearer $TOKEN" push origin HEAD:main
           fi
+
+      - name: Commit lingmo-live and open a pull request
+        env:
+          TOKEN: ${{ secrets.VERSION_SYNC_TOKEN }}
+          GH_TOKEN: ${{ secrets.VERSION_SYNC_TOKEN }}
+        run: |
+          set -e
+          cd ../lingmo-live
+          git config user.name  "lingmo-bot"
+          git config user.email "team@lingmo.org"
+          git add calamares/branding/lingmo/branding.desc
+          if git diff --cached --quiet; then
+            echo "lingmo-live 无改动"
+            exit 0
+          fi
+          BR="chore/version-${{ inputs.version }}-${{ inputs.build_ver }}"
+          git checkout -b "$BR"
+          git commit -m "chore: installer branding version -> ${{ inputs.version }} (${{ inputs.build_ver }})"
+          # 该仓库 main 有分支保护，所以推分支 + 开 PR
+          git -c http.extraheader="AUTHORIZATION: bearer $TOKEN" push -u origin "$BR"
+          gh pr create --repo LingmoOS/lingmo-live --base main --head "$BR" \
+            --title "chore: 安装器品牌版本 -> ${{ inputs.version }} (${{ inputs.build_ver }})" \
+            --body "由 lingmo-version 的 sync-version workflow 自动生成（对应 base-files ${{ inputs.version }} / ${{ inputs.build_ver }}）。"
 
       - name: Summary
         run: |

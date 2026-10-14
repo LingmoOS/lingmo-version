@@ -13,6 +13,7 @@ Lingmo OS 系统版本号统一工具：**只改一处，处处一致**。
 | `lingmo-builder/.../hooks/live/lingmo-hacks.chroot` | 自带一份变量块，历史上还写死过 `VERSION_TYPE="development"` |
 | `lingmo-builder/scripts/build.sh` | ISO 文件名用的 `LINGMO_VERTYPE / LINGMO_SYS_VERSION / LINGMO_BUILD_VER / RELEASE` |
 | `lingmo-builder/.../includes.chroot_after_packages/etc/issue(.net)` | chroot 覆盖层，会盖过 base-files 的版本 |
+| `lingmo-live/calamares/branding/lingmo/branding.desc` | **安装器界面显示的版本**（`version` / `shortVersion` / `versionedName` / `shortVersionedName` / `productName`） |
 
 实际情况就是：同一台机器上同时存在 `3.0.6 / 25R07 / Helium`、`5.0.0`、`5.0` 三种说法。
 本工具把 `base-files/debian/rules` 当**唯一源**，其余全部由它派生。
@@ -36,6 +37,12 @@ lingmo-version set 5.1 Lithium 26R01 --debian-ver 13.7 --write --bump-changelog
 
 lingmo-version check --json                # 给 CI 用
 lingmo-version check --root /path/to/parent   # 指定根目录（默认当前目录）
+lingmo-version check --live /path/to/lingmo-live        # 指定 lingmo-live 位置
+```
+三个仓库的位置都可以用 `--base-files` / `--builder` / `--live` 覆盖（支持绝对路径，
+CI 里很常用）；`lingmo-live` 不存在时该部分会**静默跳过**，所以只检出两个仓库也能用。
+
+```bash
 ```
 
 `set` 的参数顺序：`VERSION CODENAME BUILD_VER`，其余用选项：
@@ -72,3 +79,16 @@ lingmo-version check --root /path/to/parent   # 指定根目录（默认当前�
 
 * [base-files](https://github.com/LingmoOS/base-files) —— 版本号的真源（`debian/rules` 的配置块）
 * [lingmo-builder](https://github.com/LingmoOS/lingmo-builder) —— ISO 构建器（hook、`build.sh`、`issue`）
+
+## 版本号的四处归属
+
+| 仓库 | 角色 | 谁改 |
+|---|---|---|
+| [base-files](https://github.com/LingmoOS/base-files) | **唯一源**（`debian/rules` 配置块） | 工具 |
+| [lingmo-builder](https://github.com/LingmoOS/lingmo-builder) | ISO 构建器（hook、`build.sh`、`issue`） | 工具 |
+| [lingmo-live](https://github.com/LingmoOS/lingmo-live) | 安装器品牌（`branding.desc`） | 工具（该仓库 main 有分支保护，故走 PR） |
+| lingmo-installer | 上游 Calamares 引擎，**不含**版本信息 | 无需改 |
+
+注：`lingmo-installer` 仓库里的 `src/branding/default/branding.desc` 是上游占位值
+（`Fancy GNU/Linux`），ISO 实际使用 `lingmo-live/calamares/settings.conf` 里指定的
+`branding: lingmo`，所以那份不影响发行版。
