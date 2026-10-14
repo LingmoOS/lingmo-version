@@ -36,17 +36,19 @@ OS_RELEASE = "base-files/etc/os-release"
 HOOK = "lingmo-builder/scripts/lingmo-config/common/hooks/live/lingmo-hacks.chroot"
 BUILD_SH = "lingmo-builder/scripts/build.sh"
 ISSUE_DIR = "lingmo-builder/scripts/lingmo-config/common/includes.chroot_after_packages/etc"
+LIVE_BRANDING = "lingmo-live/calamares/branding/lingmo/branding.desc"
 
 
-def configure_paths(base_files: str, builder: str):
-    """允许用 --base-files / --builder 覆盖两个仓库的位置（可给绝对路径）。
+def configure_paths(base_files: str, builder: str, live: str = "lingmo-live"):
+    """允许用 --base-files / --builder / --live 覆盖各仓库位置（可给绝对路径）。
     CI 里常见场景：base-files 就是当前 checkout，lingmo-builder 是另 clone 的。"""
-    global RULES, OS_RELEASE, HOOK, BUILD_SH, ISSUE_DIR
+    global RULES, OS_RELEASE, HOOK, BUILD_SH, ISSUE_DIR, LIVE_BRANDING
     RULES = f"{base_files}/debian/rules"
     OS_RELEASE = f"{base_files}/etc/os-release"
     HOOK = f"{builder}/scripts/lingmo-config/common/hooks/live/lingmo-hacks.chroot"
     BUILD_SH = f"{builder}/scripts/build.sh"
     ISSUE_DIR = f"{builder}/scripts/lingmo-config/common/includes.chroot_after_packages/etc"
+    LIVE_BRANDING = f"{live}/calamares/branding/lingmo/branding.desc"
 
 BLOCK_BEGIN = "# ========== Lingmo OS "
 BLOCK_END = "# ==================================================================="
@@ -344,7 +346,49 @@ def targets(root: Path, ctx: Ctx, dry: bool):
                 rules.write_text("".join(lines), encoding="utf-8")
         else:
             out.append(("rules sed", rules, 0, "", "⚠️ 找不到 etc/os-release 的 sed 行，需手动补 @BUILD_TIME@ 替换"))
+
+    # 7) Calamares 安装器品牌（lingmo-live）：branding.desc 的版本字段
+    out += branding(root, ctx, dry)
     return out
+
+
+def rewrite_yaml(path: Path, wants, dry=True, kind=""):
+    """YAML 的 `key: value` 就地改值，保留原有的缩进与对齐。"""
+    if not path.exists():
+        return []
+    lines = read_text(path).splitlines(keepends=True)
+    changed = []
+    for key, value in wants:
+        pat = re.compile(rf"^(\s*{re.escape(key)}:\s*)(.*?)(\s*)$")
+        for i, l in enumerate(lines):
+            m = pat.match(l.rstrip("\n"))
+            if m:
+                new = f"{m.group(1)}{value}{m.group(3)}\n"
+                if lines[i] != new:
+                    changed.append((kind, path, i + 1, lines[i].rstrip("\n"), new.rstrip("\n")))
+                    if not dry:
+                        lines[i] = new
+                break
+    if not dry and changed:
+        shutil.copy2(path, str(path) + ".bak")
+        path.write_text("".join(lines), encoding="utf-8")
+    return changed
+
+
+def branding(root: Path, ctx: Ctx, dry: bool):
+    """lingmo-live/calamares/branding/lingmo/branding.desc —— 安装器界面显示的版本。
+    没有检出 lingmo-live 时静默跳过（保持只需两个仓库也能用）。"""
+    p = root / LIVE_BRANDING
+    if not p.exists():
+        return []
+    major = ctx.version.split(".")[0]
+    return rewrite_yaml(p, [
+        ("productName", ctx.distro_name),
+        ("version", f"{ctx.version} ({ctx.codename})"),
+        ("shortVersion", ctx.version),
+        ("versionedName", f"Lingmo {major} ({ctx.codename})"),
+        ("shortVersionedName", f"Lingmo {major}"),
+    ], dry=dry, kind="安装器品牌")
 
 
 # ------------------------------------------------------------------ 命令
@@ -457,6 +501,8 @@ def main():
                        help="base-files 仓库位置（默认 <root>/base-files，可给绝对路径）")
         p.add_argument("--builder", default="lingmo-builder",
                        help="lingmo-builder 仓库位置（默认 <root>/lingmo-builder，可给绝对路径）")
+        p.add_argument("--live", default="lingmo-live",
+                       help="lingmo-live 仓库位置（安装器品牌；不存在则跳过）")
         p.add_argument("--json", action="store_true", help="以 JSON 输出")
 
     sub = ap.add_subparsers(dest="cmd", required=True)
@@ -480,7 +526,7 @@ def main():
     a = ap.parse_args()
 
     root = Path(a.root).resolve()
-    configure_paths(a.base_files, a.builder)
+    configure_paths(a.base_files, a.builder, a.live)
     if a.cmd == "check":
         sys.exit(cmd_check(root, a.json))
     if a.cmd == "sync":
