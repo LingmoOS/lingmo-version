@@ -1,0 +1,99 @@
+name: Sync system version
+
+# 手动触发：在 Actions 页面填版本号，或
+#   gh workflow run sync-version.yml -f version=5.1 -f codename=Lithium -f build_ver=26R01
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'VERSION，如 5.1'
+        required: true
+      codename:
+        description: 'CODENAME，如 Lithium'
+        required: true
+      build_ver:
+        description: 'BUILD_VER，如 26R01（第二位的 a/b/R 决定 Alpha/Beta/Release）'
+        required: true
+      debian_ver:
+        description: 'DEBIAN_VER'
+        required: false
+        default: '13.7'
+      bump_changelog:
+        description: 'bump base-files 的 changelog（+lingmo5uN）'
+        type: boolean
+        default: true
+
+permissions:
+  contents: write
+
+concurrency: version-sync
+
+jobs:
+  sync:
+    name: Set version and push
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Clone the two repositories (PAT)
+        env:
+          TOKEN: ${{ secrets.VERSION_SYNC_TOKEN }}
+        run: |
+          set -e
+          test -n "$TOKEN" || { echo "缺少 secrets.VERSION_SYNC_TOKEN（需对该两个仓库有 Contents: write）"; exit 1; }
+          for r in base-files lingmo-builder; do
+            git -c http.extraheader="AUTHORIZATION: bearer $TOKEN" \
+                clone --depth 1 "https://github.com/LingmoOS/$r.git"
+          done
+
+      - name: Set version and sync copies
+        run: |
+          set -e
+          ARGS="--debian-ver ${{ inputs.debian_ver }} --write"
+          if [ "${{ inputs.bump_changelog }}" = "true" ]; then ARGS="$ARGS --bump-changelog"; fi
+          python3 lingmo-version set "${{ inputs.version }}" "${{ inputs.codename }}" \
+                  "${{ inputs.build_ver }}" $ARGS
+          echo "--- read-back check ---"
+          python3 lingmo-version check          # 不一致就 fail
+
+      - name: Commit and push base-files
+        env:
+          TOKEN: ${{ secrets.VERSION_SYNC_TOKEN }}
+        run: |
+          set -e
+          cd base-files
+          git config user.name  "lingmo-bot"
+          git config user.email "team@lingmo.org"
+          git add debian/rules etc/os-release debian/changelog
+          if git diff --cached --quiet; then
+            echo "base-files 无改动"
+          else
+            git commit -m "chore: system version -> ${{ inputs.version }} (${{ inputs.build_ver }})"
+            git -c http.extraheader="AUTHORIZATION: bearer $TOKEN" push origin HEAD:main
+          fi
+
+      - name: Commit and push lingmo-builder
+        env:
+          TOKEN: ${{ secrets.VERSION_SYNC_TOKEN }}
+        run: |
+          set -e
+          cd ../lingmo-builder
+          git config user.name  "lingmo-bot"
+          git config user.email "team@lingmo.org"
+          # 只 add 版本相关文件，避免把别人的改动卷进来
+          git add scripts/build.sh \
+                  scripts/lingmo-config/common/hooks/live/lingmo-hacks.chroot \
+                  scripts/lingmo-config/common/includes.chroot_after_packages/etc/issue \
+                  scripts/lingmo-config/common/includes.chroot_after_packages/etc/issue.net
+          if git diff --cached --quiet; then
+            echo "lingmo-builder 无改动"
+          else
+            git commit -m "chore: system version -> ${{ inputs.version }} (${{ inputs.build_ver }})"
+            git -c http.extraheader="AUTHORIZATION: bearer $TOKEN" push origin HEAD:main
+          fi
+
+      - name: Summary
+        run: |
+          echo "### 版本已统一为 ${{ inputs.version }} (${{ inputs.build_ver }})" >> $GITHUB_STEP_SUMMARY
+          echo "- base-files: debian/rules, etc/os-release, changelog" >> $GITHUB_STEP_SUMMARY
+          echo "- lingmo-builder: build.sh, lingmo-hacks.chroot, etc/issue(.net)" >> $GITHUB_STEP_SUMMARY

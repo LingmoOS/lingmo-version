@@ -37,6 +37,17 @@ HOOK = "lingmo-builder/scripts/lingmo-config/common/hooks/live/lingmo-hacks.chro
 BUILD_SH = "lingmo-builder/scripts/build.sh"
 ISSUE_DIR = "lingmo-builder/scripts/lingmo-config/common/includes.chroot_after_packages/etc"
 
+
+def configure_paths(base_files: str, builder: str):
+    """允许用 --base-files / --builder 覆盖两个仓库的位置（可给绝对路径）。
+    CI 里常见场景：base-files 就是当前 checkout，lingmo-builder 是另 clone 的。"""
+    global RULES, OS_RELEASE, HOOK, BUILD_SH, ISSUE_DIR
+    RULES = f"{base_files}/debian/rules"
+    OS_RELEASE = f"{base_files}/etc/os-release"
+    HOOK = f"{builder}/scripts/lingmo-config/common/hooks/live/lingmo-hacks.chroot"
+    BUILD_SH = f"{builder}/scripts/build.sh"
+    ISSUE_DIR = f"{builder}/scripts/lingmo-config/common/includes.chroot_after_packages/etc"
+
 BLOCK_BEGIN = "# ========== Lingmo OS "
 BLOCK_END = "# ==================================================================="
 
@@ -442,6 +453,10 @@ def main():
 
     def common(p):
         p.add_argument("--root", default=".", help="含有 base-files/ 与 lingmo-builder/ 的目录")
+        p.add_argument("--base-files", default="base-files",
+                       help="base-files 仓库位置（默认 <root>/base-files，可给绝对路径）")
+        p.add_argument("--builder", default="lingmo-builder",
+                       help="lingmo-builder 仓库位置（默认 <root>/lingmo-builder，可给绝对路径）")
         p.add_argument("--json", action="store_true", help="以 JSON 输出")
 
     sub = ap.add_subparsers(dest="cmd", required=True)
@@ -465,6 +480,7 @@ def main():
     a = ap.parse_args()
 
     root = Path(a.root).resolve()
+    configure_paths(a.base_files, a.builder)
     if a.cmd == "check":
         sys.exit(cmd_check(root, a.json))
     if a.cmd == "sync":
