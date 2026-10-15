@@ -13,6 +13,7 @@ Lingmo OS 系统版本号统一工具：**只改一处，处处一致**。
 | `lingmo-builder/.../hooks/live/lingmo-hacks.chroot` | 自带一份变量块，历史上还写死过 `VERSION_TYPE="development"` |
 | `lingmo-builder/scripts/build.sh` | ISO 文件名用的 `LINGMO_VERTYPE / LINGMO_SYS_VERSION / LINGMO_BUILD_VER / RELEASE` |
 | `lingmo-builder/.../includes.chroot_after_packages/etc/issue(.net)` | chroot 覆盖层，会盖过 base-files 的版本 |
+| `lingmo-desktop-base/files/os-version.in` | **只校验**：`@@DISTRO_NAME@@` / `@@VERSION@@` / `@@BUILD_VER@@` 占位符必须保留（由打包与 live hook 替换成 `/etc/os-version`；被写死就会与系统版本脱节）|
 | `lingmo-live/calamares/branding/lingmo/branding.desc` | **安装器界面显示的版本**（`version` / `shortVersion` / `versionedName` / `shortVersionedName` / `productName`） |
 
 实际情况就是：同一台机器上同时存在 `3.0.6 / 25R07 / Helium`、`5.0.0`、`5.0` 三种说法。
@@ -92,3 +93,11 @@ CI 里很常用）；`lingmo-live` 不存在时该部分会**静默跳过**，�
 注：`lingmo-installer` 仓库里的 `src/branding/default/branding.desc` 是上游占位值
 （`Fancy GNU/Linux`），ISO 实际使用 `lingmo-live/calamares/settings.conf` 里指定的
 `branding: lingmo`，所以那份不影响发行版。
+
+## 额外的校验（不写文件）
+
+* `lingmo-desktop-base/files/os-version.in`：要求保留 `@@DISTRO_NAME@@`、`@@VERSION@@`、
+  `@@BUILD_VER@@` 三个占位符，并且 `SystemName` / `MajorVersion` / `MinorVersion` / `OsBuild`
+  不能写成固定值 —— 这份模板会被打包流程与 live hook 替换成 `/etc/os-version`
+  （`dtkcore`、系统监视器、设备管理器都读它），写死就会与系统版本脱节。
+  用 `--desktop-base <路径>` 指定仓库位置，未检出时自动跳过。

@@ -37,18 +37,21 @@ HOOK = "lingmo-builder/scripts/lingmo-config/common/hooks/live/lingmo-hacks.chro
 BUILD_SH = "lingmo-builder/scripts/build.sh"
 ISSUE_DIR = "lingmo-builder/scripts/lingmo-config/common/includes.chroot_after_packages/etc"
 INSTALLER_BRANDING = "lingmo-installer-config/calamares/branding/lingmo/branding.desc"
+OS_VERSION_TEMPLATE = "lingmo-desktop-base/files/os-version.in"
 
 
-def configure_paths(base_files: str, builder: str, installer: str = "lingmo-installer-config"):
+def configure_paths(base_files: str, builder: str, installer: str = "lingmo-installer-config",
+                    desktop_base: str = "lingmo-desktop-base"):
     """允许用 --base-files / --builder / --live 覆盖各仓库位置（可给绝对路径）。
     CI 里常见场景：base-files 就是当前 checkout，lingmo-builder 是另 clone 的。"""
-    global RULES, OS_RELEASE, HOOK, BUILD_SH, ISSUE_DIR, INSTALLER_BRANDING
+    global RULES, OS_RELEASE, HOOK, BUILD_SH, ISSUE_DIR, INSTALLER_BRANDING, OS_VERSION_TEMPLATE
     RULES = f"{base_files}/debian/rules"
     OS_RELEASE = f"{base_files}/etc/os-release"
     HOOK = f"{builder}/scripts/lingmo-config/common/hooks/live/lingmo-hacks.chroot"
     BUILD_SH = f"{builder}/scripts/build.sh"
     ISSUE_DIR = f"{builder}/scripts/lingmo-config/common/includes.chroot_after_packages/etc"
     INSTALLER_BRANDING = f"{installer}/calamares/branding/lingmo/branding.desc"
+    OS_VERSION_TEMPLATE = f"{desktop_base}/files/os-version.in"
 
 BLOCK_BEGIN = "# ========== Lingmo OS "
 BLOCK_END = "# ==================================================================="
@@ -289,6 +292,43 @@ def hook_build_time(root: Path, ctx: Ctx, dry: bool):
     return changed
 
 
+def os_version_template(root: Path, ctx: Ctx, dry: bool):
+    """校验 lingmo-desktop-base 的 files/os-version.in。
+
+    该文件是"占位符模板"：@@DISTRO_NAME@@ / @@VERSION@@ / @@BUILD_VER@@ 必须保留，
+    由打包（Makefile）与 live hook 替换。两种退化都要报出来：
+      * 占位符整个不见了（有人删掉了）—— 生成出来的 os-version 会缺字段；
+      * 对应的键还在、但值被写死（例如 SystemName=Lingmo OS）—— 版本一变就不再同步。
+    只做检查，不改文件（写死值改回占位符要人判断语义）。
+    """
+    p = root / OS_VERSION_TEMPLATE
+    if not p.exists():
+        return []                       # 没检出 lingmo-desktop-base 就跳过
+
+    lines = read_text(p).splitlines()
+    text = "\n".join(lines)
+    problems = []
+
+    for placeholder, purpose in (("@@DISTRO_NAME@@", "发行版名称"),
+                                 ("@@VERSION@@", "版本号"),
+                                 ("@@BUILD_VER@@", "构建号")):
+        if placeholder not in text:
+            problems.append(("os-version 模板", p, 0, f"缺少 {placeholder}（{purpose}）",
+                             f"请保留 {placeholder}，由打包/hook 替换"))
+
+    # 键存在但没走占位符（被写死）
+    for key in ("SystemName", "MajorVersion", "MinorVersion", "OsBuild"):
+        for i, line in enumerate(lines, 1):
+            s = line.strip()
+            if not s.startswith(key + "="):
+                continue
+            value = s.split("=", 1)[1].strip()
+            if value and not value.startswith("@@"):
+                problems.append(("os-version 模板", p, i, line,
+                                 f"{key} 被写死为 {value!r}，应使用占位符"))
+    return problems
+
+
 def targets(root: Path, ctx: Ctx, dry: bool):
     out = []
 
@@ -355,8 +395,11 @@ def targets(root: Path, ctx: Ctx, dry: bool):
         else:
             out.append(("rules sed", rules, 0, "", "⚠️ 找不到 etc/os-release 的 sed 行，需手动补 @BUILD_TIME@ 替换"))
 
-    # 7) Calamares 安装器品牌（lingmo-live）：branding.desc 的版本字段
+    # 7) Calamares 安装器品牌：branding.desc 的版本字段
     out += branding(root, ctx, dry)
+
+    # 8) lingmo-desktop-base 的 os-version.in 占位符（只校验，不改写）
+    out += os_version_template(root, ctx, dry)
     return out
 
 
@@ -511,6 +554,8 @@ def main():
                        help="lingmo-builder 仓库位置（默认 <root>/lingmo-builder，可给绝对路径）")
         p.add_argument("--installer-config", "--live", dest="installer", default="lingmo-installer-config",
                        help="lingmo-installer-config 仓库位置（安装器品牌；不存在则跳过）")
+        p.add_argument("--desktop-base", dest="desktop_base", default="lingmo-desktop-base",
+                       help="lingmo-desktop-base 仓库位置（os-version.in 占位符校验；不存在则跳过）")
         p.add_argument("--json", action="store_true", help="以 JSON 输出")
 
     sub = ap.add_subparsers(dest="cmd", required=True)
@@ -534,7 +579,7 @@ def main():
     a = ap.parse_args()
 
     root = Path(a.root).resolve()
-    configure_paths(a.base_files, a.builder, a.installer)
+    configure_paths(a.base_files, a.builder, a.installer, a.desktop_base)
     if a.cmd == "check":
         sys.exit(cmd_check(root, a.json))
     if a.cmd == "sync":
