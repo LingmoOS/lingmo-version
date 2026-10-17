@@ -18,6 +18,18 @@ on:
         description: 'DEBIAN_VER'
         required: false
         default: '13.7'
+      variant:
+        description: 'VARIANT（可留空，留空则不传 --variant）'
+        required: false
+        default: ''
+      variant_id:
+        description: 'VARIANT_ID（可留空，留空则不传 --variant-id）'
+        required: false
+        default: ''
+      keep_build_time:
+        description: '保留现有的 BUILD_TIME，不刷新为当前时间'
+        type: boolean
+        default: false
       bump_changelog:
         description: 'bump base-files 的 changelog（+lingmo5uN）'
         type: boolean
@@ -35,13 +47,14 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Clone the two repositories (PAT)
+      - name: Clone the repositories (PAT)
         env:
           TOKEN: ${{ secrets.VERSION_SYNC_TOKEN }}
         run: |
           set -e
-          test -n "$TOKEN" || { echo "缺少 secrets.VERSION_SYNC_TOKEN（需对该两个仓库有 Contents: write）"; exit 1; }
-          for r in base-files lingmo-builder lingmo-live; do
+          test -n "$TOKEN" || { echo "缺少 secrets.VERSION_SYNC_TOKEN（需对这些仓库有 Contents: write）"; exit 1; }
+          # lingmo-live 已废弃，安装器品牌实际在 lingmo-installer-config
+          for r in base-files lingmo-builder lingmo-installer-config lingmo-desktop-base; do
             git -c http.extraheader="AUTHORIZATION: bearer $TOKEN" \
                 clone --depth 1 "https://github.com/LingmoOS/$r.git"
           done
@@ -50,6 +63,9 @@ jobs:
         run: |
           set -e
           ARGS="--debian-ver ${{ inputs.debian_ver }} --write"
+          if [ -n "${{ inputs.variant }}" ]; then ARGS="$ARGS --variant ${{ inputs.variant }}"; fi
+          if [ -n "${{ inputs.variant_id }}" ]; then ARGS="$ARGS --variant-id ${{ inputs.variant_id }}"; fi
+          if [ "${{ inputs.keep_build_time }}" = "true" ]; then ARGS="$ARGS --keep-build-time"; fi
           if [ "${{ inputs.bump_changelog }}" = "true" ]; then ARGS="$ARGS --bump-changelog"; fi
           python3 lingmo-version set "${{ inputs.version }}" "${{ inputs.codename }}" \
                   "${{ inputs.build_ver }}" $ARGS
@@ -92,31 +108,44 @@ jobs:
             git -c http.extraheader="AUTHORIZATION: bearer $TOKEN" push origin HEAD:main
           fi
 
-      - name: Commit lingmo-live and open a pull request
+      - name: Commit and push lingmo-installer-config
         env:
           TOKEN: ${{ secrets.VERSION_SYNC_TOKEN }}
-          GH_TOKEN: ${{ secrets.VERSION_SYNC_TOKEN }}
         run: |
           set -e
-          cd ../lingmo-live
+          cd ../lingmo-installer-config
           git config user.name  "lingmo-bot"
           git config user.email "team@lingmo.org"
-          git add calamares/branding/lingmo/branding.desc
+          git add calamares/branding/lingmo/branding.desc debian/changelog
           if git diff --cached --quiet; then
-            echo "lingmo-live 无改动"
-            exit 0
+            echo "lingmo-installer-config 无改动"
+          else
+            git commit -m "chore: installer branding version -> ${{ inputs.version }} (${{ inputs.build_ver }})"
+            git -c http.extraheader="AUTHORIZATION: bearer $TOKEN" push origin HEAD:main
           fi
-          BR="chore/version-${{ inputs.version }}-${{ inputs.build_ver }}"
-          git checkout -b "$BR"
-          git commit -m "chore: installer branding version -> ${{ inputs.version }} (${{ inputs.build_ver }})"
-          # 该仓库 main 有分支保护，所以推分支 + 开 PR
-          git -c http.extraheader="AUTHORIZATION: bearer $TOKEN" push -u origin "$BR"
-          gh pr create --repo LingmoOS/lingmo-live --base main --head "$BR" \
-            --title "chore: 安装器品牌版本 -> ${{ inputs.version }} (${{ inputs.build_ver }})" \
-            --body "由 lingmo-version 的 sync-version workflow 自动生成（对应 base-files ${{ inputs.version }} / ${{ inputs.build_ver }}）。"
+
+      - name: Commit and push lingmo-desktop-base
+        env:
+          TOKEN: ${{ secrets.VERSION_SYNC_TOKEN }}
+        run: |
+          set -e
+          cd ../lingmo-desktop-base
+          git config user.name  "lingmo-bot"
+          git config user.email "team@lingmo.org"
+          git add files/os-version.in debian/changelog
+          if git diff --cached --quiet; then
+            echo "lingmo-desktop-base 无改动"
+          else
+            git commit -m "chore: os-version template -> ${{ inputs.version }} (${{ inputs.build_ver }})"
+            git -c http.extraheader="AUTHORIZATION: bearer $TOKEN" push origin HEAD:main
+          fi
 
       - name: Summary
         run: |
           echo "### 版本已统一为 ${{ inputs.version }} (${{ inputs.build_ver }})" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
           echo "- base-files: debian/rules, etc/os-release, changelog" >> $GITHUB_STEP_SUMMARY
           echo "- lingmo-builder: build.sh, lingmo-hacks.chroot, etc/issue(.net)" >> $GITHUB_STEP_SUMMARY
+          echo "- lingmo-installer-config: calamares/branding/lingmo/branding.desc" >> $GITHUB_STEP_SUMMARY
+          echo "- lingmo-desktop-base: files/os-version.in" >> $GITHUB_STEP_SUMMARY
+          echo "- variant=${{ inputs.variant }} variant_id=${{ inputs.variant_id }} keep_build_time=${{ inputs.keep_build_time }}" >> $GITHUB_STEP_SUMMARY
