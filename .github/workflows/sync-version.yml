@@ -90,12 +90,14 @@ jobs:
             git push origin HEAD:main
           fi
 
+      # 注意：Actions 每个 step 都从 workspace 根目录开始，clone 出来的仓库都在根下，
+      # 所以这里用 cd <仓库名>，不要写成 ../<仓库名>。
       - name: Commit and push lingmo-builder
         env:
           TOKEN: ${{ secrets.VERSION_SYNC_TOKEN }}
         run: |
           set -e
-          cd ../lingmo-builder
+          cd lingmo-builder
           git config user.name  "lingmo-bot"
           git config user.email "team@lingmo.org"
           # 只 add 版本相关文件，避免把别人的改动卷进来
@@ -115,7 +117,7 @@ jobs:
           TOKEN: ${{ secrets.VERSION_SYNC_TOKEN }}
         run: |
           set -e
-          cd ../lingmo-installer-config
+          cd lingmo-installer-config
           git config user.name  "lingmo-bot"
           git config user.email "team@lingmo.org"
           git add calamares/branding/lingmo/branding.desc debian/changelog
@@ -131,7 +133,7 @@ jobs:
           TOKEN: ${{ secrets.VERSION_SYNC_TOKEN }}
         run: |
           set -e
-          cd ../lingmo-desktop-base
+          cd lingmo-desktop-base
           git config user.name  "lingmo-bot"
           git config user.email "team@lingmo.org"
           git add files/os-version.in debian/changelog
