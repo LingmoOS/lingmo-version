@@ -53,10 +53,12 @@ jobs:
         run: |
           set -e
           test -n "$TOKEN" || { echo "缺少 secrets.VERSION_SYNC_TOKEN（需对这些仓库有 Contents: write）"; exit 1; }
+          # 用 insteadOf 把凭据放进 gitconfig：token 不会出现在命令行/日志里，
+          # 也让后面所有 push 自动带上凭据。
+          git config --global url."https://x-access-token:${TOKEN}@github.com/".insteadOf "https://github.com/"
           # lingmo-live 已废弃，安装器品牌实际在 lingmo-installer-config
           for r in base-files lingmo-builder lingmo-installer-config lingmo-desktop-base; do
-            git -c http.extraheader="AUTHORIZATION: bearer $TOKEN" \
-                clone --depth 1 "https://github.com/LingmoOS/$r.git"
+            git clone --depth 1 "https://github.com/LingmoOS/$r.git"
           done
 
       - name: Set version and sync copies
@@ -85,7 +87,7 @@ jobs:
             echo "base-files 无改动"
           else
             git commit -m "chore: system version -> ${{ inputs.version }} (${{ inputs.build_ver }})"
-            git -c http.extraheader="AUTHORIZATION: bearer $TOKEN" push origin HEAD:main
+            git push origin HEAD:main
           fi
 
       - name: Commit and push lingmo-builder
@@ -105,7 +107,7 @@ jobs:
             echo "lingmo-builder 无改动"
           else
             git commit -m "chore: system version -> ${{ inputs.version }} (${{ inputs.build_ver }})"
-            git -c http.extraheader="AUTHORIZATION: bearer $TOKEN" push origin HEAD:main
+            git push origin HEAD:main
           fi
 
       - name: Commit and push lingmo-installer-config
@@ -121,7 +123,7 @@ jobs:
             echo "lingmo-installer-config 无改动"
           else
             git commit -m "chore: installer branding version -> ${{ inputs.version }} (${{ inputs.build_ver }})"
-            git -c http.extraheader="AUTHORIZATION: bearer $TOKEN" push origin HEAD:main
+            git push origin HEAD:main
           fi
 
       - name: Commit and push lingmo-desktop-base
@@ -137,7 +139,7 @@ jobs:
             echo "lingmo-desktop-base 无改动"
           else
             git commit -m "chore: os-version template -> ${{ inputs.version }} (${{ inputs.build_ver }})"
-            git -c http.extraheader="AUTHORIZATION: bearer $TOKEN" push origin HEAD:main
+            git push origin HEAD:main
           fi
 
       - name: Summary
